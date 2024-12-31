@@ -1,3 +1,3 @@
-chy 1111 users /chy
+
 root password root /root
-ch 123 users /ch
+
