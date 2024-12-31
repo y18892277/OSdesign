@@ -127,10 +127,18 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="FilesyStem.h" />
+    <ClInclude Include="FileSystemNode.h" />
     <ClInclude Include="main.h" />
+    <ClInclude Include="SimpleShell.h" />
+    <ClInclude Include="User.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="FileSystem.cpp" />
+    <ClCompile Include="FileSystemNode.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="SimpleShell.cpp" />
+    <ClCompile Include="User.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
