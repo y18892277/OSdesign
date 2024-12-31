@@ -21,17 +21,18 @@ FileSystem::~FileSystem() {
 
 // 根据路径查找节点实现
 FileSystemNode* FileSystem::getNodeByPath(const std::string& path) {
-    if (path == "/") return root;
+    if (path.empty()) return nullptr;
 
-    if (path.empty() || path[0] != '/') {
-        std::cerr << "Error: Only absolute paths are supported.\n";
-        return nullptr;
+    std::string absolutePath = path;
+    // 如果是相对路径，则将其转换为绝对路径
+    if (path[0] != '/') {
+        absolutePath = getCurrentDirectoryPath() + path;
     }
 
+    // 继续原有的绝对路径处理逻辑
     std::vector<std::string> parts;
-    std::istringstream iss(path);
+    std::istringstream iss(absolutePath);
     std::string part;
-
     while (std::getline(iss, part, '/')) {
         if (!part.empty()) {
             parts.push_back(part);
@@ -39,12 +40,10 @@ FileSystemNode* FileSystem::getNodeByPath(const std::string& path) {
     }
 
     FileSystemNode* node = root;
-
     for (const auto& p : parts) {
         if (node->children.find(p) == node->children.end()) return nullptr;
         node = node->children[p];
     }
-
     return node;
 }
 
@@ -174,6 +173,7 @@ void FileSystem::loadFromFile(const std::string& filename) {
 
         iss >> path >> type >> owner >> group >> permissions >> isBeingEdited >> content;
 
+
         FileSystemNode* node = getNodeByPath(path);
 
         if (node) { // 检查节点是否存在
@@ -189,7 +189,7 @@ void FileSystem::loadFromFile(const std::string& filename) {
 
         }
         else { // 创建新节点
-            create(path, type == "d", owner, group);
+            load(path, type == "d", owner, group);
             node = getNodeByPath(path);
 
             if (node) {
@@ -209,21 +209,20 @@ void FileSystem::loadFromFile(const std::string& filename) {
 // 从硬盘加载用户信息实现
 void FileSystem::loadUsersFromFile(const std::string& filename) {
     std::ifstream in(filename, std::ios::in);
-
     if (!in) {
         std::cerr << "Error opening file for reading: " << filename << std::endl;
         return;
     }
 
-    // 读取用户信息
     std::string username, password, group, homeDirectory;
-
     while (in >> username >> password >> group >> homeDirectory) {
-        users.emplace(std::piecewise_construct,
-            std::forward_as_tuple(username),
-            std::forward_as_tuple(username, password, group, homeDirectory));
+        // 检查用户是否已存在
+        if (users.find(username) == users.end()) {
+            users.emplace(std::piecewise_construct,
+                std::forward_as_tuple(username),
+                std::forward_as_tuple(username, password, group, homeDirectory));
+        }
     }
-
     in.close();
 }
 
@@ -235,6 +234,8 @@ void FileSystem::setPermissions(const std::string& path, const std::string& newP
         return;
     }
     node->setPermissions(newPermissions);
+
+    saveToFile("filesystem_state.txt");
 }
 
 // 获取权限实现
@@ -258,7 +259,7 @@ void FileSystem::addUser(const std::string& username, const std::string& passwor
     if (result.second) { // 插入成功
         // 检查家目录是否已存在
         if (!getNodeByPath(homeDir)) {
-            create(homeDir, true, username, group);
+            load(homeDir, true, username, group);
         }
     }
     else {
@@ -282,23 +283,29 @@ void FileSystem::changeUserPassword(const std::string& username, const std::stri
 // 登录实现
 bool FileSystem::login(const std::string& username, const std::string& password) {
     auto it = users.find(username);
-
     if (it == users.end() || it->second.password != password) {
         std::cerr << "Error: Invalid username or password\n";
         return false;
     }
 
-    currentUser = &it->second;
-    changeDirectory(currentUser->homeDirectory);
+    // 如果用户已经登录，直接返回
+    if (currentUser != nullptr && currentUser->username == username) {
+        std::cout << "Already logged in as " << username << std::endl;
+        return true;
+    }
+
+    currentUser = &it->second; // 设置当前用户
+    changeDirectory(currentUser->homeDirectory); // 切换到用户的家目录
     return true;
 }
 
 // 检查权限实现
 bool FileSystem::checkPermissions(FileSystemNode* node, char permissionType) {
     // permissionType 检查的权限类型为r,w,x
-        // if (currentUser->username == "root") {
-        //     return true;  // root用户拥有所有权限
-        // }
+         if (currentUser->username == "root") {
+             return true;  // root用户拥有所有权限
+         }
+
     std::string permissions = node->getPermissions();
     bool hasPermission = false;
 
@@ -326,8 +333,45 @@ bool FileSystem::checkPermissions(FileSystemNode* node, char permissionType) {
     return hasPermission;
 }
 
-void FileSystem::create(const std::string& path, bool isDirectory, const std::string& owner, const std::string& group)
-{
+void FileSystem::create(const std::string& path, bool isDirectory, const std::string& owner, const std::string& group) {
+    if (path.empty()) {
+        std::cerr << "Error: Path cannot be empty\n";
+        return;
+    }
+
+    // 处理相对路径，将其转换为绝对路径
+    std::string absolutePath = path[0] == '/' ? path : getCurrentDirectoryPath() + path;
+
+    // 检查路径是否存在
+    FileSystemNode* node = getNodeByPath(absolutePath);
+    if (node) {
+        std::cerr << "Error: File or directory already exists\n";
+        return;
+    }
+
+    // 获取父目录路径和新节点名称
+    size_t lastSlashPos = absolutePath.find_last_of('/');
+    std::string parentPath = (lastSlashPos != std::string::npos) ? absolutePath.substr(0, lastSlashPos) : "/";
+    std::string name = (lastSlashPos != std::string::npos) ? absolutePath.substr(lastSlashPos + 1) : absolutePath;
+
+
+    FileSystemNode* parent = current; // 使用当前目录作为父节点
+
+    // 确保父节点是一个有效的目录
+    if (!parent || !parent->isDirectory) {
+        std::cerr << "Error: Invalid path\n";
+        return;
+    }
+
+    // 创建文件或目录
+    FileSystemNode* newNode = new FileSystemNode(name, isDirectory, owner, group, "rwx", "r-x", "r-x", parent);
+    
+    // 将新节点添加到父目录的子节点
+    parent->children[name] = newNode;
+}
+
+
+void FileSystem::load(const std::string& path, bool isDirectory, const std::string& owner, const std::string& group) {
     // 检查路径是否存在
     FileSystemNode* node = getNodeByPath(path);
     if (node) {
@@ -368,90 +412,81 @@ void FileSystem::create(const std::string& path, bool isDirectory, const std::st
 
 void FileSystem::remove(const std::string& path)
 {
-    if(path.empty() || path[0] != '/') {
-        std::cerr << "Error: Only absolute paths are supported\n";
+    if (path.empty()) {
+        std::cerr << "Error: Path cannot be empty\n";
         return;
     }
 
-    size_t lastSlashPos = path.find_last_of('/');
-    std::string parentPath;  // 父目录路径
-    if (lastSlashPos == 0) {
-        // 删除的是根目录下的文件或目录
-        parentPath = "/";
-    }
-    else {
-        parentPath = path.substr(0, lastSlashPos);
-    }
-    std::string name = path.substr(lastSlashPos + 1);  // 节点名
-    FileSystemNode* parent = getNodeByPath(parentPath);
+    std::string absolutePath = path[0] == '/' ? path : getCurrentDirectoryPath() + path;
 
-    if (!parent || !parent->isDirectory ||
-        parent->children.find(name) == parent->children.end()) {
+    size_t lastSlashPos = absolutePath.find_last_of('/');
+    std::string parentPath = lastSlashPos != std::string::npos ? absolutePath.substr(0, lastSlashPos) : "/";
+    std::string name = absolutePath.substr(lastSlashPos + 1);
+
+    FileSystemNode* parent = getNodeByPath(parentPath);
+    if (!parent || !parent->isDirectory || parent->children.find(name) == parent->children.end()) {
         std::cerr << "Error: File or directory does not exist\n";
         return;
     }
 
-    delete parent->children[name];  // 删除对象
-    parent->children.erase(name);   // 删除map的键值对
+    delete parent->children[name];
+    parent->children.erase(name);
 }
 
 void FileSystem::changeDirectory(const std::string& path)
 {
-    if (path.empty() || path[0] != '/') {
-        std::cerr << "Error: Only absolute paths are supported\n";
+    if (path.empty()) {
+        std::cerr << "Error: Path cannot be empty\n";
         return;
     }
 
-    FileSystemNode* node = getNodeByPath(path);
+    std::string absolutePath = path[0] == '/' ? path : getCurrentDirectoryPath() + path;
+
+    FileSystemNode* node = getNodeByPath(absolutePath);
     if (!node || !node->isDirectory) {
         std::cerr << "Error: Directory does not exist\n";
         return;
     }
 
-    // 检查是否有读权限
     if (!checkPermissions(node, 'r')) {
         std::cerr << "Error: Permission denied\n";
         return;
     }
 
-    current = node;
+    current = node; // 更新当前目录
 }
 
 void FileSystem::listDirectory(bool longFormat)
 {
-    if (longFormat) {  // ls -l
+    if (longFormat) {
         for (const auto& child : current->children) {
-            std::cout << std::left << std::setw(10)
-                << child.second->formatPermissions() << " "
-                << child.first << "\n";
+            std::cout << std::left << std::setw(10) << child.second->formatPermissions() << " " << child.first << "\n";
         }
     }
-    else {  // ls
+    else {
         for (const auto& child : current->children) {
-            std::cout << (child.second->isDirectory ? "d " : "- ")
-                << child.first << "\n";  // d:目录,-:文件
+            std::cout << (child.second->isDirectory ? "d " : "- ") << child.first << "\n";
         }
     }
 }
 
 void FileSystem::readFile(const std::string& path)
 {
-    FileSystemNode* node = getNodeByPath(path);
+    if (path.empty()) {
+        std::cerr << "Error: Path cannot be empty\n";
+        return;
+    }
+
+    std::string absolutePath = path[0] == '/' ? path : getCurrentDirectoryPath() + path;
+
+    FileSystemNode* node = getNodeByPath(absolutePath);
     if (!node || node->isDirectory) {
         std::cerr << "Error: Invalid file path\n";
         return;
     }
 
-    // 检查是否有读权限
     if (!checkPermissions(node, 'r')) {
         std::cerr << "Error: Permission denied\n";
-        return;
-    }
-
-    // 检查文件是否正在被编辑
-    loadFromFile("filesystem_state.txt");
-    if (node->isBeingEdited) {
-        std::cerr << "Error: File is currently being edited\n";
         return;
     }
 

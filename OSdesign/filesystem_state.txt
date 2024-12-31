@@ -1,0 +1,6 @@
+/ d root root rwxr-xr-x 0 
+//ch d ch users rwxr-xr-x 0 
+//root d root root rwxr-xr-x 0 
+//root/chy d chy users rwxr-xr-x 0 
+//root/try d root root rwxr-xr-x 0 
+//root/try/1.txt f root root rwxrwxrwx 0 123566\n

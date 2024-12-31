@@ -67,5 +67,7 @@ public:
 
     // 获取当前工作目录的绝对路径
     std::string getCurrentDirectoryPath();
+
+    void load(const std::string& path, bool isDirectory, const std::string& owner, const std::string& group);
 };
 

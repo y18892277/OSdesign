@@ -20,6 +20,7 @@ void SimpleShell::run()
 		fs.loadFromFile("filesystem_state.txt");
 		fs.loadUsersFromFile("users.txt");
 
+
 		std::cout << fs.getCurrentDirectoryPath()
 			<< "$ ";  // 当前工作目录和提示符
 		std::getline(std::cin, line);
@@ -141,7 +142,9 @@ void SimpleShell::executeCommand(const std::string & command, const std::vector<
 		std::cerr << " Error: No user logged in" << std::endl;
 			return;
 		}
-		else if (command == "chmod") {
+
+
+		if (command == "chmod") {
 			if (args.size() != 2) {
 			std::cerr << " Usage: chmod <permissions> <filename/directory>" << std::endl;
 				return;
@@ -155,6 +158,7 @@ void SimpleShell::executeCommand(const std::string & command, const std::vector<
 			}
 
 			fs.setPermissions(args[1], symbolicPermissions);
+
 		}
 		else if (command == "getperm") {
 			if (args.size() != 1) {
